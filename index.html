@@ -63,7 +63,7 @@
   }
   .search-wrap {
     flex: 1;
-    max-width: 320px;
+    max-width: 280px;
     position: relative;
   }
   .search-wrap input {
@@ -82,11 +82,7 @@
   .search-wrap input:focus { border-color: var(--red); }
   .search-wrap input::placeholder { color: var(--muted); }
 
-  /* channel tabs */
-  .chan-tabs {
-    display: flex;
-    gap: 6px;
-  }
+  .chan-tabs { display: flex; gap: 6px; }
   .chan-tab {
     background: transparent;
     border: 1px solid var(--border);
@@ -104,6 +100,26 @@
     border-color: var(--red);
     color: var(--red);
     background: rgba(255,40,0,0.07);
+  }
+
+  /* random button */
+  .random-btn {
+    background: rgba(255,40,0,0.1);
+    border: 1px solid var(--red);
+    color: var(--red);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 1.5px;
+    padding: 5px 14px;
+    cursor: pointer;
+    border-radius: 1px;
+    transition: all 0.12s;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .random-btn:hover {
+    background: var(--red);
+    color: #fff;
   }
 
   .vid-count {
@@ -262,23 +278,19 @@
     from { transform: scale(0.97) translateY(8px); opacity: 0; }
     to   { transform: scale(1) translateY(0); opacity: 1; }
   }
-
-  /* player wrapper — iframe sits inside this */
   .modal-player {
     width: 100%;
     aspect-ratio: 16/9;
     background: #000;
     position: relative;
   }
-  .modal-player iframe {
-    position: absolute;
-    inset: 0;
+  /* the div that YT API replaces becomes the iframe */
+  #yt-player {
     width: 100%;
     height: 100%;
-    border: none;
-    display: block;
+    position: absolute;
+    inset: 0;
   }
-
   .modal-footer {
     padding: 12px 20px;
     display: flex;
@@ -297,19 +309,13 @@
     flex: 1;
     min-width: 0;
   }
-
-  /* speed controls */
   .speed-label {
     font-size: 10px;
     color: var(--muted);
     letter-spacing: 1px;
     flex-shrink: 0;
   }
-  .speed-btns {
-    display: flex;
-    gap: 4px;
-    flex-shrink: 0;
-  }
+  .speed-btns { display: flex; gap: 4px; flex-shrink: 0; }
   .spd {
     background: transparent;
     border: 1px solid var(--border);
@@ -324,11 +330,10 @@
   }
   .spd:hover { border-color: #333; color: #aaa; }
   .spd.active { border-color: var(--red); color: var(--red); background: rgba(255,40,0,0.08); }
-
   .modal-close {
     background: transparent;
-    border: 1px solid var(--border);
-    color: var(--muted);
+    border: 1px solid #333;
+    color: #666;
     font-family: 'Share Tech Mono', monospace;
     font-size: 11px;
     padding: 6px 14px;
@@ -357,8 +362,8 @@
     font-size: 11px;
     letter-spacing: 2px;
   }
-  @media (max-width: 640px) {
-    nav { padding: 0 14px; gap: 10px; flex-wrap: wrap; height: auto; padding-top: 10px; padding-bottom: 10px; }
+  @media (max-width: 700px) {
+    nav { padding: 0 14px; gap: 10px; height: auto; padding-top: 10px; padding-bottom: 10px; flex-wrap: wrap; }
     .vid-count { display: none; }
     .grid { padding: 14px 14px 40px; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
   }
@@ -374,8 +379,9 @@
   <div class="chan-tabs">
     <button class="chan-tab active" data-ch="all">ALL</button>
     <button class="chan-tab" data-ch="main">PHONK HUB</button>
-    <button class="chan-tab" data-ch="alt">BRAZILIAN PHONK</button>
+    <button class="chan-tab" data-ch="alt">BRAZILIAN</button>
   </div>
+  <button class="random-btn" id="randomBtn">⚄ RANDOM</button>
   <div class="vid-count" id="vidCount"></div>
 </nav>
 
@@ -392,8 +398,7 @@
 <div class="modal-bg" id="modalBg">
   <div class="modal">
     <div class="modal-player">
-      <iframe id="modalFrame" allow="autoplay; fullscreen" allowfullscreen
-        src="about:blank"></iframe>
+      <div id="yt-player"></div>
     </div>
     <div class="modal-footer">
       <div class="modal-title" id="modalTitle"></div>
@@ -406,7 +411,7 @@
         <button class="spd" data-speed="1.5">1.5×</button>
         <button class="spd" data-speed="2">2×</button>
       </div>
-      <button class="modal-close" onclick="closeModal()">✕ CLOSE</button>
+      <button class="modal-close" id="closeBtn">✕ CLOSE</button>
     </div>
   </div>
 </div>
@@ -417,71 +422,41 @@
 </footer>
 
 <script>
-const API_KEY = 'AIzaSyDBpus_pKsTecCCo7EftMc_Ftl1AsYSfNQ';
-const CHANNELS = {
-  main: 'UC0BQqJ2w9RwVwgNILHN9Bjg',
-  alt:  'UC6ZWs0a2x6CRxbmclMrcK-w'
-};
-
-let allVideos = [];
+const API_KEY    = 'AIzaSyDBpus_pKsTecCCo7EftMc_Ftl1AsYSfNQ';
+const CHANNELS   = { main: 'UC0BQqJ2w9RwVwgNILHN9Bjg', alt: 'UC6ZWs0a2x6CRxbmclMrcK-w' };
+let allVideos    = [];
 let activeChannel = 'all';
-let currentVideoId = null;
+let ytPlayer     = null;
 let currentSpeed = 1;
-let player = null; // YouTube IFrame API player
+let ytReady      = false;
 
-// ── YouTube IFrame API ──────────────────────────────────────
-window.onYouTubeIframeAPIReady = function() { /* ready */ };
-
-function loadYTApi() {
-  if (window.YT) return;
+// ── YouTube IFrame API ────────────────────────────────────────
+window.onYouTubeIframeAPIReady = function() { ytReady = true; };
+(function(){
   const s = document.createElement('script');
   s.src = 'https://www.youtube.com/iframe_api';
   document.head.appendChild(s);
-}
+})();
 
-function createPlayer(videoId) {
-  if (player) { player.destroy(); player = null; }
-  const container = document.getElementById('modalFrame');
-  container.id = 'yt-player-' + Date.now();
-  player = new YT.Player(container.id, {
-    videoId,
-    playerVars: { autoplay: 1, rel: 0, modestbranding: 1 },
-    events: {
-      onReady: e => {
-        e.target.setPlaybackRate(currentSpeed);
-        e.target.playVideo();
-      }
-    }
-  });
-  // give new iframe element the id back for next time
-  const newFrame = document.querySelector('#' + container.id + ' iframe') || document.getElementById(container.id);
-  if (newFrame && newFrame.tagName === 'IFRAME') newFrame.id = 'modalFrame';
-}
-
-// ── Fetch all videos from both channels ──────────────────────
+// ── Fetch ─────────────────────────────────────────────────────
 async function fetchChannel(channelId, label) {
-  const chanRes = await fetch(
-    `https://www.googleapis.com/youtube/v3/channels?part=contentDetails&id=${channelId}&key=${API_KEY}`
-  );
-  const chanData = await chanRes.json();
-  if (!chanData.items || !chanData.items.length) throw new Error('channel not found: ' + channelId);
-  const uploadsId = chanData.items[0].contentDetails.relatedPlaylists.uploads;
-
-  let videos = [];
-  let pageToken = '';
+  const cr = await fetch(`https://www.googleapis.com/youtube/v3/channels?part=contentDetails&id=${channelId}&key=${API_KEY}`);
+  const cd = await cr.json();
+  if (!cd.items?.length) throw new Error('no channel');
+  const pid = cd.items[0].contentDetails.relatedPlaylists.uploads;
+  let videos = [], token = '';
   do {
-    const url = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId=${uploadsId}&maxResults=50&key=${API_KEY}` + (pageToken ? `&pageToken=${pageToken}` : '');
-    const res = await fetch(url);
-    const data = await res.json();
-    if (data.error) throw new Error(data.error.message);
-    for (const item of (data.items || [])) {
+    const r = await fetch(`https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId=${pid}&maxResults=50&key=${API_KEY}${token ? '&pageToken='+token : ''}`);
+    const d = await r.json();
+    if (d.error) throw new Error(d.error.message);
+    for (const item of d.items || []) {
       const s = item.snippet;
-      const videoId = s.resourceId?.videoId;
-      if (!videoId || s.title === 'Private video' || s.title === 'Deleted video') continue;
-      videos.push({ videoId, title: s.title, channel: label });
+      const vid = s.resourceId?.videoId;
+      if (!vid || s.title === 'Private video' || s.title === 'Deleted video') continue;
+      videos.push({ videoId: vid, title: s.title, channel: label });
     }
-    pageToken = data.nextPageToken || '';
-  } while (pageToken);
+    token = d.nextPageToken || '';
+  } while (token);
   return videos;
 }
 
@@ -489,14 +464,14 @@ async function fetchAll() {
   try {
     const [main, alt] = await Promise.all([
       fetchChannel(CHANNELS.main, 'main'),
-      fetchChannel(CHANNELS.alt, 'alt')
+      fetchChannel(CHANNELS.alt,  'alt')
     ]);
     allVideos = [...main, ...alt];
     document.getElementById('loading').style.display = 'none';
     document.getElementById('grid').style.display = 'grid';
     render();
-  } catch (err) {
-    console.error(err);
+  } catch(e) {
+    console.error(e);
     document.getElementById('loading').style.display = 'none';
     document.getElementById('errorMsg').style.display = 'block';
   }
@@ -506,9 +481,9 @@ async function fetchAll() {
 function getFiltered() {
   const q = document.getElementById('searchInput').value.toLowerCase().trim();
   return allVideos.filter(v => {
-    const chanMatch = activeChannel === 'all' || v.channel === activeChannel;
-    const searchMatch = !q || v.title.toLowerCase().includes(q);
-    return chanMatch && searchMatch;
+    const cm = activeChannel === 'all' || v.channel === activeChannel;
+    const sm = !q || v.title.toLowerCase().includes(q);
+    return cm && sm;
   });
 }
 
@@ -517,31 +492,23 @@ function render() {
   grid.innerHTML = '';
   const videos = getFiltered();
   document.getElementById('vidCount').textContent = videos.length + ' VIDEOS';
-
-  if (!videos.length) {
-    grid.innerHTML = '<div class="no-results">NO RESULTS</div>';
-    return;
-  }
-
+  if (!videos.length) { grid.innerHTML = '<div class="no-results">NO RESULTS</div>'; return; }
   videos.forEach((v, i) => {
     const card = document.createElement('div');
     card.className = 'card';
     card.style.animationDelay = Math.min(i * 0.02, 0.5) + 's';
     card.innerHTML = `
       <div class="thumb">
-        <img src="https://i.ytimg.com/vi/${v.videoId}/mqdefault.jpg" alt="" loading="lazy" />
-        <div class="thumb-overlay">
-          <div class="play-ring"><div class="play-tri"></div></div>
-        </div>
+        <img src="https://i.ytimg.com/vi/${v.videoId}/mqdefault.jpg" alt="" loading="lazy"/>
+        <div class="thumb-overlay"><div class="play-ring"><div class="play-tri"></div></div></div>
       </div>
-      <div class="card-title">${escH(v.title)}</div>
-    `;
+      <div class="card-title">${escH(v.title)}</div>`;
     card.querySelector('.thumb').addEventListener('click', () => openModal(v.videoId, v.title));
     grid.appendChild(card);
   });
 }
 
-// ── Channel tabs ──────────────────────────────────────────────
+// ── Tabs & search ─────────────────────────────────────────────
 document.querySelectorAll('.chan-tab').forEach(btn => {
   btn.addEventListener('click', () => {
     activeChannel = btn.dataset.ch;
@@ -550,67 +517,97 @@ document.querySelectorAll('.chan-tab').forEach(btn => {
     render();
   });
 });
-
 document.getElementById('searchInput').addEventListener('input', render);
 
+// ── Random ────────────────────────────────────────────────────
+document.getElementById('randomBtn').addEventListener('click', () => {
+  const pool = getFiltered();
+  if (!pool.length) return;
+  const v = pool[Math.floor(Math.random() * pool.length)];
+  openModal(v.videoId, v.title);
+});
+
 // ── Modal / Player ────────────────────────────────────────────
-function openModal(id, title) {
-  currentVideoId = id;
+function openModal(videoId, title) {
   currentSpeed = 1;
   document.querySelectorAll('.spd').forEach(b => b.classList.toggle('active', b.dataset.speed === '1'));
   document.getElementById('modalTitle').textContent = title;
   document.getElementById('modalBg').classList.add('open');
   document.body.style.overflow = 'hidden';
 
-  if (window.YT && YT.Player) {
-    createPlayer(id);
+  // destroy old player cleanly
+  if (ytPlayer) {
+    try { ytPlayer.destroy(); } catch(e) {}
+    ytPlayer = null;
+  }
+  // reset the target div
+  const wrap = document.getElementById('yt-player');
+  wrap.innerHTML = '';
+  const div = document.createElement('div');
+  div.id = 'yt-inner';
+  wrap.appendChild(div);
+
+  function buildPlayer() {
+    ytPlayer = new YT.Player('yt-inner', {
+      videoId,
+      width: '100%',
+      height: '100%',
+      playerVars: { autoplay: 1, rel: 0, modestbranding: 1, playsinline: 1 },
+      events: {
+        onReady(e) {
+          e.target.setPlaybackRate(currentSpeed);
+          e.target.playVideo();
+        }
+      }
+    });
+  }
+
+  if (ytReady && window.YT?.Player) {
+    buildPlayer();
   } else {
-    // fallback: plain iframe embed
-    const frame = document.getElementById('modalFrame');
-    frame.src = `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&rel=0&modestbranding=1&enablejsapi=1`;
+    // wait for API
+    const poll = setInterval(() => {
+      if (window.YT?.Player) { clearInterval(poll); buildPlayer(); }
+    }, 100);
   }
 }
 
 function closeModal() {
-  if (player) { try { player.destroy(); } catch(e){} player = null; }
-  const frame = document.getElementById('modalFrame');
-  frame.src = 'about:blank';
-  frame.id = 'modalFrame';
+  if (ytPlayer) {
+    try { ytPlayer.stopVideo(); ytPlayer.destroy(); } catch(e) {}
+    ytPlayer = null;
+  }
+  document.getElementById('yt-player').innerHTML = '';
   document.getElementById('modalBg').classList.remove('open');
   document.body.style.overflow = '';
-  currentVideoId = null;
 }
 
-// Speed buttons
+// close button
+document.getElementById('closeBtn').addEventListener('click', closeModal);
+
+// click outside modal
+document.getElementById('modalBg').addEventListener('click', function(e) {
+  if (e.target === this) closeModal();
+});
+
+// escape key
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+// speed buttons
 document.getElementById('speedBtns').addEventListener('click', e => {
   const btn = e.target.closest('.spd');
   if (!btn) return;
   currentSpeed = parseFloat(btn.dataset.speed);
   document.querySelectorAll('.spd').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
-  if (player && player.setPlaybackRate) {
-    player.setPlaybackRate(currentSpeed);
-  } else {
-    // reload iframe with speed note (best effort for non-API embed)
-    const frame = document.getElementById('modalFrame');
-    if (frame && currentVideoId) {
-      frame.src = `https://www.youtube-nocookie.com/embed/${currentVideoId}?autoplay=1&rel=0&modestbranding=1`;
-    }
-  }
+  if (ytPlayer?.setPlaybackRate) ytPlayer.setPlaybackRate(currentSpeed);
 });
-
-document.getElementById('modalBg').addEventListener('click', e => {
-  if (e.target === document.getElementById('modalBg')) closeModal();
-});
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
 function escH(s) {
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-loadYTApi();
 fetchAll();
 </script>
-<script src="https://www.youtube.com/iframe_api" async></script>
 </body>
 </html>
