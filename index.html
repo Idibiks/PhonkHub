@@ -760,13 +760,12 @@
 /* ─────────────────────────────────────────────────────────────────
    CONFIG — edit these
    ───────────────────────────────────────────────────────────────── */
-const API_KEY  = 'AIzaSyDBpus_pKsTecCCo7EftMc_Ftl1AsYSfNQ';
-const MAIN_CH  = 'UC0BQqJ2w9RwVwgNILHN9Bjg';
-const PLAYLIST = 'PLhywld0bMIgg8zrvc6K0eaxUnnrNGfr8p';
-
-// ↓ Paste your Google Apps Script Web App URL here after setup
-// See the SETUP GUIDE comment at the bottom of this file
+const API_KEY    = 'AIzaSyDBpus_pKsTecCCo7EftMc_Ftl1AsYSfNQ';
+const MAIN_CH    = 'UC0BQqJ2w9RwVwgNILHN9Bjg';
+const PLAYLIST   = 'PLhywld0bMIgg8zrvc6K0eaxUnnrNGfr8p';
+const SHEET_ID   = '1XO7lp_iEaU31WctiMavFit0q0ZjGYMk8vBIrbghhsEg';
 const SUBMIT_WEBHOOK = 'https://script.google.com/macros/s/AKfycbwDrpFOoBImunvIksbuLPZvnGIp9hvo1UG8uOgOl5XR7PXPK2l7D2J88WMablMDTpcj/exec';
+
 /* ─────────────────────────────────────────────────────────────────
    STATE
    ───────────────────────────────────────────────────────────────── */
@@ -814,15 +813,63 @@ async function fetchPlaylist(playlistId, label) {
   return videos;
 }
 
+// ── Fetch approved submissions from Google Sheet ──────────────
+async function fetchApproved() {
+  try {
+    const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=Sheet1`;
+    const r = await fetch(url);
+    const text = await r.text();
+    // Strip the google wrapper: /*O_o*/ google.visualization.Query.setResponse({...});
+    const json = JSON.parse(text.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\)/)[1]);
+    const rows = json.table.rows || [];
+    const approved = [];
+    for (const row of rows) {
+      const cells = row.c;
+      if (!cells) continue;
+      const videoId = cells[1]?.v;
+      const status  = cells[5]?.v;
+      if (videoId && status && status.toString().toUpperCase() === 'APPROVED') {
+        approved.push(videoId);
+      }
+    }
+    return approved;
+  } catch(e) {
+    console.warn('Could not fetch sheet:', e);
+    return [];
+  }
+}
+
+// ── Fetch video titles from YouTube for a list of IDs ─────────
+async function fetchVideoTitles(videoIds) {
+  if (!videoIds.length) return [];
+  const videos = [];
+  // YouTube allows up to 50 IDs per request
+  for (let i = 0; i < videoIds.length; i += 50) {
+    const chunk = videoIds.slice(i, i + 50).join(',');
+    const r = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${chunk}&key=${API_KEY}`);
+    const d = await r.json();
+    for (const item of d.items || []) {
+      videos.push({ videoId: item.id, title: item.snippet.title, channel: 'submitted' });
+    }
+  }
+  return videos;
+}
+
 async function fetchAll() {
   try {
-    const [main, playlist] = await Promise.all([
+    const [main, playlist, approvedIds] = await Promise.all([
       fetchChannel(MAIN_CH, 'main'),
-      fetchPlaylist(PLAYLIST, 'playlist')
+      fetchPlaylist(PLAYLIST, 'playlist'),
+      fetchApproved()
     ]);
+
+    // Fetch titles for approved sheet submissions
+    const submitted = await fetchVideoTitles(approvedIds);
+
+    // Merge all sources, deduplicate by videoId
     const seen = new Set();
     const merged = [];
-    for (const v of [...main, ...playlist]) {
+    for (const v of [...main, ...playlist, ...submitted]) {
       if (!seen.has(v.videoId)) { seen.add(v.videoId); merged.push(v); }
     }
     allVideos = merged;
